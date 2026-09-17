@@ -11,7 +11,11 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.ail.api_client import AILEnergyClient
 from custom_components.ail.const import DOMAIN, ENERGY_DAY_CONSUMPTION_KEY
-from custom_components.ail.coordinator import ConsumptionData, EnergyDataUpdateCoordinator
+from custom_components.ail.coordinator import (
+    ConsumptionData,
+    EnergyDataUpdateCoordinator,
+    StatisticMeanType,
+)
 
 
 class _DummyRecorder:
@@ -118,7 +122,7 @@ async def test_insert_statistics_uses_utc_start(hass):
 
 @pytest.mark.asyncio
 async def test_insert_statistics_includes_mean_type_and_unit_class(hass):
-    """On HA >= 2025.4, metadata must carry mean_type and unit_class (req. 2026.11)."""
+    """Energy statistics metadata must carry mean_type and unit_class (req. 2026.11)."""
     tz = dt_util.get_time_zone("Europe/Zurich")
     dt_util.set_default_time_zone(tz)
     try:
@@ -133,11 +137,6 @@ async def test_insert_statistics_includes_mean_type_and_unit_class(hass):
         }
         captured = {}
 
-        class _FakeMeanType:
-            NONE = 0
-            ARITHMETIC = 1
-            CIRCULAR = 2
-
         def _capture_stats(_hass, metadata, statistics):
             captured["metadata"] = metadata
 
@@ -149,9 +148,6 @@ async def test_insert_statistics_includes_mean_type_and_unit_class(hass):
         ), patch(
             "custom_components.ail.coordinator.async_add_external_statistics",
             new=_capture_stats,
-        ), patch(
-            "custom_components.ail.coordinator.StatisticMeanType",
-            _FakeMeanType,
         ):
             await coordinator._insert_statistic_type(
                 consumptions,
@@ -162,7 +158,7 @@ async def test_insert_statistics_includes_mean_type_and_unit_class(hass):
             )
 
         meta = captured["metadata"]
-        assert meta["mean_type"] == 0  # StatisticMeanType.NONE
+        assert meta["mean_type"] == StatisticMeanType.NONE
         assert meta["unit_class"] == "energy"
         assert meta["has_mean"] is False
         assert meta["has_sum"] is True
@@ -171,8 +167,8 @@ async def test_insert_statistics_includes_mean_type_and_unit_class(hass):
 
 
 @pytest.mark.asyncio
-async def test_insert_statistics_omits_mean_type_when_unavailable(hass):
-    """On HA < 2025.4 the metadata should stay unchanged (no new enum involved)."""
+async def test_insert_statistics_cost_uses_no_unit_class(hass):
+    """Cost statistics (no unit) must not get an energy unit_class."""
     tz = dt_util.get_time_zone("Europe/Zurich")
     dt_util.set_default_time_zone(tz)
     try:
@@ -198,9 +194,6 @@ async def test_insert_statistics_omits_mean_type_when_unavailable(hass):
         ), patch(
             "custom_components.ail.coordinator.async_add_external_statistics",
             new=_capture_stats,
-        ), patch(
-            "custom_components.ail.coordinator.StatisticMeanType",
-            None,
         ):
             await coordinator._insert_statistic_type(
                 consumptions,
@@ -211,8 +204,8 @@ async def test_insert_statistics_omits_mean_type_when_unavailable(hass):
             )
 
         meta = captured["metadata"]
-        assert "mean_type" not in meta
-        assert "unit_class" not in meta
+        assert meta["mean_type"] == StatisticMeanType.NONE
+        assert meta["unit_class"] is None
         assert meta["has_mean"] is False
         assert meta["has_sum"] is True
     finally:
