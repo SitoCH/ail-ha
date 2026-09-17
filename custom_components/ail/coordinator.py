@@ -81,23 +81,20 @@ class EnergyDataUpdateCoordinator(DataUpdateCoordinator[ConsumptionData]):
             consumption_data = ConsumptionData.from_api_response(response)
             _LOGGER.debug("Updated consumption data: %s", consumption_data)
 
-            # Process hourly consumptions
-            hourly_data = self._sum_hourly_consumptions(consumption_data)
-            consumption_stats = ConsumptionData.from_api_response(response)
-
-            # Handle empty consumption_stats array
-            if not consumption_stats:
+            # Handle empty consumption_data array
+            if not consumption_data:
                 _LOGGER.warning("No consumption data received from API")
                 return ConsumptionData(
                     day=0.0,
                     night=0.0,
-                    total=0.0,
                     from_date=_from,
-                    to_date=_to
+                    to_date=_to,
                 )
 
+            # Process hourly consumptions
+            hourly_data = self._sum_hourly_consumptions(consumption_data)
+
             await self._insert_statistics(hourly_data)
-            _LOGGER.debug("Updated consumption data: %s", consumption_stats)
 
             return consumption_data[-1]
         except Exception as err:
@@ -144,9 +141,11 @@ class EnergyDataUpdateCoordinator(DataUpdateCoordinator[ConsumptionData]):
             get_last_statistics, self.hass, 1, ENERGY_CONSUMPTION_KEY, True, {"sum"}
         )
 
-        last_stats_time = (
-            last_stat[ENERGY_CONSUMPTION_KEY][0]["start"] if last_stat else None
+        stat_entry = (
+            last_stat.get(ENERGY_CONSUMPTION_KEY, [{}])[0] if last_stat else {}
         )
+        start = stat_entry.get("start")
+        last_stats_time = start.timestamp() if start else None
 
         base_metadata = {
             "has_mean": False,
@@ -155,7 +154,7 @@ class EnergyDataUpdateCoordinator(DataUpdateCoordinator[ConsumptionData]):
             "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,
         }
 
-        sums = last_stat[ENERGY_CONSUMPTION_KEY][0]["sum"] if last_stat else 0.0
+        sums = stat_entry.get("sum", 0.0)
         statistics = []
 
         # Prepare statistics for each hour
