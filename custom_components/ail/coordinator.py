@@ -9,6 +9,12 @@ from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
 )
+
+# StatisticMeanType only exists from HA 2025.4; mean_type is mandatory in 2026.11.
+try:
+    from homeassistant.components.recorder.models import StatisticMeanType
+except ImportError:  # pragma: no cover  (Home Assistant < 2025.4)
+    StatisticMeanType = None  # type: ignore[assignment,misc]
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
@@ -402,6 +408,16 @@ class EnergyDataUpdateCoordinator(DataUpdateCoordinator[Optional[ConsumptionData
             "source": DOMAIN,
             **metadata,
         }
+        # mean_type / unit_class are mandatory from HA 2026.11; StatisticMeanType
+        # only exists from 2025.4, so guard for older installs.
+        if StatisticMeanType is not None:
+            base_metadata["mean_type"] = StatisticMeanType.NONE
+            base_metadata["unit_class"] = (
+                "energy"
+                if base_metadata.get("unit_of_measurement")
+                == UnitOfEnergy.KILO_WATT_HOUR
+                else None
+            )
 
         if statistics:
             metadata = StatisticMetaData(
