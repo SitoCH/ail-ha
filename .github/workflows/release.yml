@@ -1,0 +1,77 @@
+name: Create Release
+
+# Manual release workflow for HACS.
+# HACS (integration category) reads the latest git RELEASE/TAG on the repo it is
+# pointed at. This workflow, run once per release:
+#   1. bumps manifest.json version to the input version
+#   2. commits + pushes that bump to main
+#   3. creates an annotated git tag v<version> and a GitHub Release
+# HACS then offers the new version to installed instances automatically
+# (hacs.json has no `version` field, so updates are tag-driven/auto).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Target version, e.g. 0.0.7 (no leading 'v'). Must be higher than the last tagged release."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate version input
+        run: |
+          VER="${{ inputs.version }}"
+          if [[ ! "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version '$VER' (expected e.g. 0.0.7)"; exit 1
+          fi
+          if git rev-parse "v$VER" >/dev/null 2>&1; then
+            echo "Tag v$VER already exists"; exit 1
+          fi
+
+      - name: Bump manifest.json version
+        run: |
+          python3 - "${{ inputs.version }}" <<'EOF'
+          import json, sys
+          p = "custom_components/ail/manifest.json"
+          d = json.load(open(p))
+          d["version"] = sys.argv[1]
+          json.dump(d, open(p, "w"), indent=2)
+          open(p, "a").write("\n")
+          print("manifest version ->", d["version"])
+          EOF
+
+      - name: Commit, tag, push to main
+        run: |
+          VER="${{ inputs.version }}"
+          git add custom_components/ail/manifest.json
+          git commit -m "chore: bump version to $VER"
+          git push origin main
+          git tag -a "v$VER" -m "Release v$VER"
+          git push origin "v$VER"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ inputs.version }}"
+          name: "v${{ inputs.version }}"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
